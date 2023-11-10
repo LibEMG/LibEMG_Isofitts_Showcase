@@ -43,10 +43,11 @@ class FittsLawTest:
         self.savefile = savefile
         self.logging = logging
         self.trial = 0
+        self.cursor_size = 14
 
         # interface objects
         self.circles = []
-        self.cursor = pygame.Rect(self.width//2 - 7, self.height//2 - 7, 14, 14)
+        self.cursor = pygame.Rect(self.width//2 - 7, self.height//2 - 7, self.cursor_size, self.cursor_size)
         self.goal_circle = -1
         self.get_new_goal_circle()
         self.current_direction = [0,0]
@@ -166,9 +167,9 @@ class FittsLawTest:
 
     def move(self):
         # Making sure its within the bounds of the screen
-        if self.cursor.x + self.current_direction[0] > 0 and self.cursor.x + self.current_direction[0] < self.width:
+        if self.cursor.x + self.current_direction[0] > 0 + self.cursor_size//2 and self.cursor.x + self.current_direction[0] + self.cursor_size//2 < self.width:
             self.cursor.x += self.current_direction[0]
-        if self.cursor.y + self.current_direction[1] > 0 and self.cursor.y + self.current_direction[1] < self.height:
+        if self.cursor.y + self.current_direction[1] > 0 + self.cursor_size//2 and self.cursor.y + self.current_direction[1] + self.cursor_size//2 < self.height:
             self.cursor.y += self.current_direction[1]
     
     def get_new_goal_circle(self):
