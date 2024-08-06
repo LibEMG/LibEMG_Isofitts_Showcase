@@ -3,10 +3,10 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 from os import walk
-from libemg.emg_classifier import EMGClassifier
+from libemg.emg_predictor import EMGClassifier
 from libemg.feature_extractor import FeatureExtractor
 from libemg.utils import make_regex
-from libemg.data_handler import OfflineDataHandler
+from libemg.data_handler import OfflineDataHandler, RegexFilter
 from libemg.offline_metrics import OfflineMetrics
 
 def evaluate_offline_data():
@@ -18,30 +18,25 @@ def evaluate_offline_data():
         'metrics': [],
     }
 
-    dataset_folder = 'data'
-    classes_values = ["0","1","2","3","4"]
-    classes_regex = make_regex(left_bound = "_C_", right_bound=".csv", values = classes_values)
-    reps_values = ["0","1","2","3","4"]
-    reps_regex = make_regex(left_bound = "R_", right_bound="_C_", values = reps_values)
-    dic = {
-        "reps": reps_values,
-        "reps_regex": reps_regex,
-        "classes": classes_values,
-        "classes_regex": classes_regex
-    }
+    dataset_folder = 'data/'
+    regex_filters = [
+        RegexFilter(left_bound = "C_", right_bound="_R", values = ["0","1","2","3","4"], description='classes'),
+        RegexFilter(left_bound = "R_", right_bound="_emg.csv", values = ["0", "1", "2"], description='reps'),
+    ]
+
     odh = OfflineDataHandler()
-    odh.get_data(folder_location=dataset_folder, filename_dic = dic, delimiter=",")
+    odh.get_data(dataset_folder, regex_filters, delimiter=",")
 
     fe = FeatureExtractor()
 
-    train_odh = odh.isolate_data(key="reps", values=[0,1,2])
+    train_odh = odh.isolate_data(key="reps", values=[0,1])
     train_windows, train_metadata = train_odh.parse_windows(WINDOW_SIZE,WINDOW_INCREMENT)
-    test_odh = odh.isolate_data(key="reps", values=[3,4])
+    test_odh = odh.isolate_data(key="reps", values=[2])
     test_windows, test_metadata = test_odh.parse_windows(WINDOW_SIZE,WINDOW_INCREMENT)
 
     data_set = {}
-    data_set['testing_features'] = fe.extract_feature_group('LS4', test_windows)
-    data_set['training_features'] = fe.extract_feature_group('LS4', train_windows)
+    data_set['testing_features'] = fe.extract_feature_group('HTD', test_windows)
+    data_set['training_features'] = fe.extract_feature_group('HTD', train_windows)
     data_set['testing_labels'] = test_metadata['classes']
     data_set['training_labels'] = train_metadata['classes']
 
@@ -49,9 +44,9 @@ def evaluate_offline_data():
     metrics = ['CA', 'AER', 'INS', 'CONF_MAT']
     # Normal Case - Test all different classifiers
     for model in ['LDA', 'SVM', 'KNN', 'RF']:
-        classifier = EMGClassifier()
-        classifier.fit(model, data_set.copy())
-        preds, probs = classifier.run(data_set['testing_features'], data_set['testing_labels'])
+        classifier = EMGClassifier(model)
+        classifier.fit(data_set.copy())
+        preds, probs = classifier.run(data_set['testing_features'])
         out_metrics = om.extract_offline_metrics(metrics, data_set['testing_labels'], preds, 2)
         offline_metrics['classifier'].append(model)
         offline_metrics['metrics'].append(out_metrics)
@@ -149,7 +144,8 @@ if __name__ == "__main__":
         y = [(fitts_metrics['metrics'][y])[f_mets[i]] for y in range(0, len(fitts_metrics['classifier']))]
         axs[i, 1].bar(x,y)
         axs[i, 1].set_title(f_mets[i])
-
+    
+    plt.tight_layout()
     plt.show()
 
     print(offline_metrics)
