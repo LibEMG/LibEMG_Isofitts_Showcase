@@ -1,12 +1,13 @@
+from pathlib import Path
+
 import pickle
 import numpy as np
 import math
 import matplotlib.pyplot as plt
 from os import walk
-from libemg.emg_predictor import EMGClassifier
+from libemg.emg_predictor import EMGClassifier, EMGRegressor
 from libemg.feature_extractor import FeatureExtractor
-from libemg.utils import make_regex
-from libemg.data_handler import OfflineDataHandler, RegexFilter
+from libemg.data_handler import OfflineDataHandler, RegexFilter, FilePackager
 from libemg.offline_metrics import OfflineMetrics
 
 def evaluate_offline_data():
@@ -14,42 +15,71 @@ def evaluate_offline_data():
     WINDOW_INCREMENT = 20
 
     offline_metrics = {
-        'classifier': [],
+        'model': [],
+        'predictor_type': [],
         'metrics': [],
     }
 
-    dataset_folder = 'data/'
     regex_filters = [
-        RegexFilter(left_bound = "C_", right_bound="_R", values = ["0","1","2","3","4"], description='classes'),
+        RegexFilter(left_bound = "classification/C_", right_bound="_R", values = ["0","1","2","3","4"], description='classes'),
         RegexFilter(left_bound = "R_", right_bound="_emg.csv", values = ["0", "1", "2"], description='reps'),
     ]
 
-    odh = OfflineDataHandler()
-    odh.get_data(dataset_folder, regex_filters, delimiter=",")
+    clf_odh = OfflineDataHandler()
+    clf_odh.get_data('data/', regex_filters, delimiter=",")
+
+    regex_filters = [
+        RegexFilter(left_bound='data/regression/C_0_R_', right_bound='_emg.csv', values=['0', '1', '2'], description='reps')
+    ]
+    metadata_fetchers = [
+        FilePackager(RegexFilter(left_bound='animation/', right_bound='.txt', values=['collection'], description='labels'), package_function=lambda x, y: True)
+    ]
+    reg_odh = OfflineDataHandler()
+    reg_odh.get_data('./', regex_filters, metadata_fetchers=metadata_fetchers, delimiter=',')
+
 
     fe = FeatureExtractor()
 
-    train_odh = odh.isolate_data(key="reps", values=[0,1])
-    train_windows, train_metadata = train_odh.parse_windows(WINDOW_SIZE,WINDOW_INCREMENT)
-    test_odh = odh.isolate_data(key="reps", values=[2])
-    test_windows, test_metadata = test_odh.parse_windows(WINDOW_SIZE,WINDOW_INCREMENT)
+    for odh in [clf_odh, reg_odh]:
+        is_regression = odh == reg_odh
+        if is_regression:
+            metadata_operations = {'labels': 'last_sample'}
+            metrics = ['MAE', 'MSE', 'NRMSE']
+            labels_key = 'labels'
+            models = ['LR', 'RF']
+        else:
+            metadata_operations = None
+            metrics = ['CA', 'AER', 'INS', 'CONF_MAT']
+            labels_key = 'classes'
+            models = ['LDA', 'SVM', 'KNN', 'RF']
+        train_odh = odh.isolate_data(key="reps", values=[0,1])
+        train_windows, train_metadata = train_odh.parse_windows(WINDOW_SIZE,WINDOW_INCREMENT, metadata_operations=metadata_operations)
+        test_odh = odh.isolate_data(key="reps", values=[2])
+        test_windows, test_metadata = test_odh.parse_windows(WINDOW_SIZE,WINDOW_INCREMENT, metadata_operations=metadata_operations)
 
-    data_set = {}
-    data_set['testing_features'] = fe.extract_feature_group('HTD', test_windows)
-    data_set['training_features'] = fe.extract_feature_group('HTD', train_windows)
-    data_set['testing_labels'] = test_metadata['classes']
-    data_set['training_labels'] = train_metadata['classes']
+        data_set = {}
+        data_set['testing_features'] = fe.extract_feature_group('HTD', test_windows)
+        data_set['training_features'] = fe.extract_feature_group('HTD', train_windows)
+        data_set['testing_labels'] = test_metadata[labels_key]
+        data_set['training_labels'] = train_metadata[labels_key]
 
-    om = OfflineMetrics()
-    metrics = ['CA', 'AER', 'INS', 'CONF_MAT']
-    # Normal Case - Test all different classifiers
-    for model in ['LDA', 'SVM', 'KNN', 'RF']:
-        classifier = EMGClassifier(model)
-        classifier.fit(data_set.copy())
-        preds, probs = classifier.run(data_set['testing_features'])
-        out_metrics = om.extract_offline_metrics(metrics, data_set['testing_labels'], preds, 2)
-        offline_metrics['classifier'].append(model)
-        offline_metrics['metrics'].append(out_metrics)
+        om = OfflineMetrics()
+        # Normal Case - Test all different models
+        for model in models:
+            if is_regression:
+                emg_predictor = EMGRegressor(model)
+                emg_predictor.fit(data_set.copy())
+                preds = emg_predictor.run(data_set['testing_features'])
+                predictor_type = 'regression'
+            else:
+                emg_predictor = EMGClassifier(model)
+                emg_predictor.fit(data_set.copy())
+                preds, _ = emg_predictor.run(data_set['testing_features'])
+                predictor_type = 'classification'
+            out_metrics = om.extract_offline_metrics(metrics, data_set['testing_labels'], preds, 2)
+            offline_metrics['model'].append(model)
+            offline_metrics['predictor_type'].append(predictor_type)
+            offline_metrics['metrics'].append(out_metrics)
     return offline_metrics
 
 def read_pickle(location):
@@ -110,14 +140,15 @@ def extract_fitts_metrics(data):
 def evaluate_fitts_data():
     path = 'results/'
     filenames = next(walk(path), (None, None, []))[2]
+    filenames = [filename for filename in filenames if filename.endswith('.pkl')]
     fitts_metrics = {
-        'classifier': [],
+        'model': [],
         'metrics': [],
     }
     
     for file in filenames:
         data = read_pickle(path + file)
-        fitts_metrics['classifier'].append(file.split('_')[1])
+        fitts_metrics['model'].append(Path(file).stem)
         fitts_metrics['metrics'].append(extract_fitts_metrics(data))
 
     return fitts_metrics
@@ -126,25 +157,37 @@ if __name__ == "__main__":
     offline_metrics = evaluate_offline_data()
     fitts_metrics = evaluate_fitts_data()
 
-    num_models = len(fitts_metrics['metrics'][0])
-
-    # Plot bar chart for each classifier - lets look at CA, AER and INS for each classifier
-    o_mets = ['CA', 'AER', 'INS']
+    # Plot bar chart for each model - lets look at CA, AER and INS for each classifier and MAE, MSE, and NRMSE for each regressor
+    clf_mets = ['CA', 'AER', 'INS']
+    reg_mets = ['MAE', 'MSE', 'NRMSE']
     f_mets = ['throughput', 'efficiency', 'overshoots']
-    fig, axs = plt.subplots(num_models, 2)
+    fig, axs = plt.subplots(len(clf_mets), 3)
     for i in range(0, 3):
         # Plot CA, AER and INS
-        x = [x for x in offline_metrics['classifier']]
-        y = [(offline_metrics['metrics'][y])[o_mets[i]] for y in range(0, len(offline_metrics['classifier']))]
-        axs[i, 0].bar(x,y)
-        axs[i, 0].set_title(o_mets[i])
+        clf_mask = [idx for idx, x in enumerate(offline_metrics['predictor_type']) if x == 'classification']
+        # clf_x = [x for x in offline_metrics['model'] if isinstance(x, EMGClassifier)]
+        clf_x = [offline_metrics['model'][idx] for idx in clf_mask]
+        clf_y = [(offline_metrics['metrics'][y])[clf_mets[i]] for y in clf_mask]
+        # clf_y = [(offline_metrics['metrics'][y])[clf_mets[i]] for y in range(0, len(offline_metrics['model']))]
+        axs[i, 0].bar(clf_x,clf_y)
+        axs[i, 0].set_ylabel(clf_mets[i])
+
+        # Plot regression metrics
+        reg_mask = [idx for idx, x in enumerate(offline_metrics['predictor_type']) if x == 'regression']
+        reg_x = [offline_metrics['model'][idx] for idx in reg_mask]
+        reg_y = [(offline_metrics['metrics'][y])[reg_mets[i]].mean() for y in reg_mask]
+        axs[i, 1].bar(reg_x,reg_y)
+        axs[i, 1].set_ylabel(reg_mets[i])
         
         # Plot throughput, efficiency and overshoots 
-        x = [x for x in fitts_metrics['classifier']]
-        y = [(fitts_metrics['metrics'][y])[f_mets[i]] for y in range(0, len(fitts_metrics['classifier']))]
-        axs[i, 1].bar(x,y)
-        axs[i, 1].set_title(f_mets[i])
+        fitts_x = [x for x in fitts_metrics['model']]
+        fitts_y = [(fitts_metrics['metrics'][y])[f_mets[i]] for y in range(0, len(fitts_metrics['model']))]
+        axs[i, 2].bar(fitts_x, fitts_y)
+        axs[i, 2].set_ylabel(f_mets[i].title())
     
+    axs[0, 0].set_title('Classification Metrics')
+    axs[0, 1].set_title('Regression Metrics')
+    axs[0, 2].set_title('Usability Metrics')
     plt.tight_layout()
     plt.show()
 
