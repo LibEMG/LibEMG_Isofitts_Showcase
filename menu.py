@@ -4,7 +4,6 @@ from tkinter import *
 from libemg.streamers import myo_streamer
 from libemg.gui import GUI
 from libemg.data_handler import OnlineDataHandler, OfflineDataHandler, RegexFilter, FilePackager
-from libemg.utils import make_regex
 from libemg.feature_extractor import FeatureExtractor
 from libemg.emg_predictor import OnlineEMGClassifier, EMGClassifier, EMGRegressor, OnlineEMGRegressor
 from libemg.environments.isofitts import IsoFitts
@@ -60,10 +59,12 @@ class Menu:
         self.set_up_model()
         if self.regression_selected():
             controller = RegressorController()
+            save_file = Path('results', self.model_str.get() + '_reg' + ".pkl").absolute().as_posix()
         else:
             controller = ClassifierController(output_format=self.model.output_format, num_classes=5)
-        IsoFitts(controller, num_trials=8, num_circles=8, save_file=self.model_str.get() + ".pkl").run()
-        # Its important to stop the classifier after the game has ended
+            save_file = Path('results', self.model_str.get() + '_clf' + ".pkl").absolute().as_posix()
+        IsoFitts(controller, num_trials=8, num_circles=8, save_file=save_file).run()
+        # Its important to stop the model after the game has ended
         # Otherwise it will continuously run in a seperate process
         self.model.stop_running()
         self.initialize_ui()
@@ -119,8 +120,9 @@ class Menu:
         data_set['training_features'] = training_features
         data_set['training_labels'] = train_metadata[labels_key]
 
-        # Step 4: Create the EMG Classifier
+        # Step 4: Create the EMG model
         model = self.model_str.get()
+        print('Fitting model...')
         if self.regression_selected():
             # Regression
             emg_model = EMGRegressor(model=model)
@@ -130,9 +132,11 @@ class Menu:
             # Classification
             emg_model = EMGClassifier(model=model)
             emg_model.fit(feature_dictionary=data_set)
+            emg_model.add_velocity(train_windows, train_metadata[labels_key])
             self.model = OnlineEMGClassifier(emg_model, WINDOW_SIZE, WINDOW_INCREMENT, self.odh, feature_list)
 
-        # Step 5: Create online EMG classifier and start classifying.
+        # Step 5: Create online EMG model and start predicting.
+        print('Model fitted and running!')
         self.model.run(block=False) # block set to false so it will run in a seperate process.
 
     def on_closing(self):
