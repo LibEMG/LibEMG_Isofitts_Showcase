@@ -165,10 +165,8 @@ if __name__ == "__main__":
     for i in range(0, 3):
         # Plot CA, AER and INS
         clf_mask = [idx for idx, x in enumerate(offline_metrics['predictor_type']) if x == 'classification']
-        # clf_x = [x for x in offline_metrics['model'] if isinstance(x, EMGClassifier)]
         clf_x = [offline_metrics['model'][idx] for idx in clf_mask]
         clf_y = [(offline_metrics['metrics'][y])[clf_mets[i]] for y in clf_mask]
-        # clf_y = [(offline_metrics['metrics'][y])[clf_mets[i]] for y in range(0, len(offline_metrics['model']))]
         axs[i, 0].bar(clf_x,clf_y)
         axs[i, 0].set_ylabel(clf_mets[i])
 
