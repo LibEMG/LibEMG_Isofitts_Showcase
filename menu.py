@@ -141,5 +141,3 @@ class Menu:
 
 if __name__ == "__main__":
     menu = Menu()
-    # maybe add a CLI here to determine classification or regression?
-    # need to upload some regression videos or something... either in repo or setup so it'll automatically download them
