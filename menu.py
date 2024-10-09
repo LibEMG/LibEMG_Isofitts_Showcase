@@ -120,9 +120,6 @@ class Menu:
         animator = ScatterPlotAnimator(output_filepath=output_filepath.as_posix(), show_direction=True, show_countdown=True, axis_images=axis_images)
         animator.save_plot_video(coordinates, title='Regression Training', save_coordinates=True, verbose=True)
 
-
-        
-
     def set_up_model(self):
         WINDOW_SIZE = 40
         WINDOW_INCREMENT = 5
