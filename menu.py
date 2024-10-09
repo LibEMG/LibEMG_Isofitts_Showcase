@@ -62,8 +62,7 @@ class Menu:
             controller = RegressorController()
         else:
             controller = ClassifierController(output_format=self.model.output_format, num_classes=5)
-        IsoFitts(controller, num_trials=8, num_circles=8, save_file=self.model_str.get() + ".pkl", proportional_control=False).run()
-        print('hi')
+        IsoFitts(controller, num_trials=8, num_circles=8, save_file=self.model_str.get() + ".pkl").run()
         # Its important to stop the classifier after the game has ended
         # Otherwise it will continuously run in a seperate process
         self.model.stop_running()
