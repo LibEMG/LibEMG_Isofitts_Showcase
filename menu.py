@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import numpy as np
+from PIL import Image as PILImage
+
 from tkinter import *
 from libemg.streamers import myo_streamer
 from libemg.gui import GUI
@@ -8,6 +11,7 @@ from libemg.feature_extractor import FeatureExtractor
 from libemg.emg_predictor import OnlineEMGClassifier, EMGClassifier, EMGRegressor, OnlineEMGRegressor
 from libemg.environments.isofitts import IsoFitts
 from libemg.environments.controllers import ClassifierController, RegressorController
+from libemg.animator import ScatterPlotAnimator
 
 class Menu:
     def __init__(self):
@@ -80,8 +84,44 @@ class Menu:
             args = {'media_folder': 'images/', 'data_folder': Path('data', 'classification').absolute().as_posix()}
         training_ui = GUI(self.odh, args=args, width=700, height=700, gesture_height=300, gesture_width=300)
         training_ui.download_gestures([1,2,3,4,5], "images/")
+        self.create_animation()
         training_ui.start_gui()
         self.initialize_ui()
+
+    def create_animation(self):
+        output_filepath = Path('animation', 'collection.mp4').absolute()
+        if not self.regression_selected() or output_filepath.exists():
+            return
+
+        print('Creating regression training animation...')
+        period = 2  # period of sinusoid (seconds)
+        cycles = 10
+        rest_time = 5 # (seconds)
+        fps = 24
+
+        coordinates = []
+        total_duration = int(cycles * period + rest_time)
+        t = np.linspace(0, total_duration - rest_time, fps * (total_duration - rest_time))
+        coordinates.append(np.sin(2 * np.pi * (1 / period) * t))    # add sinusoids
+        coordinates.append(np.zeros(fps * rest_time))   # add rest time
+
+        # Convert into 2D (N x M) array with isolated sinusoids per DOF
+        coordinates = np.expand_dims(np.concatenate(coordinates, axis=0), axis=1)
+        dof1 = np.hstack((coordinates, np.zeros_like(coordinates)))
+        dof2 = np.hstack((np.zeros_like(coordinates), coordinates))
+        coordinates = np.vstack((dof1, dof2))
+        
+        axis_images = {
+            'N': PILImage.open(Path('images', 'Hand_Open.png')),
+            'S': PILImage.open(Path('images', 'Hand_Close.png')),
+            'E': PILImage.open(Path('images', 'Wrist_Extension.png')),
+            'W': PILImage.open(Path('images', 'Wrist_Flexion.png'))
+        }
+        animator = ScatterPlotAnimator(output_filepath=output_filepath.as_posix(), show_direction=True, show_countdown=True, axis_images=axis_images)
+        animator.save_plot_video(coordinates, title='Regression Training', save_coordinates=True, verbose=True)
+
+
+        
 
     def set_up_model(self):
         WINDOW_SIZE = 40
